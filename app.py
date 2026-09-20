@@ -51,7 +51,7 @@ if google_file is not None and meta_file is not None:
     google_data = pd.read_csv(google_file)
     meta_data = pd.read_csv(meta_file)
 
-    # Validate Google Ads columns
+    # Required Google Ads columns
     google_required = [
         "Campaign",
         "Cost",
@@ -61,7 +61,7 @@ if google_file is not None and meta_file is not None:
         "Conv. value",
     ]
 
-    # Validate Meta Ads columns
+    # Required Meta Ads columns
     meta_required = [
         "Campaign name",
         "Amount spent (USD)",
@@ -71,13 +71,12 @@ if google_file is not None and meta_file is not None:
         "Purchases conversion value",
     ]
 
-    # Identify missing Google Ads columns
+    # Identify missing columns
     google_missing = [
         column for column in google_required
         if column not in google_data.columns
     ]
 
-    # Identify missing Meta Ads columns
     meta_missing = [
         column for column in meta_required
         if column not in meta_data.columns
@@ -96,7 +95,7 @@ if google_file is not None and meta_file is not None:
             + ", ".join(meta_missing)
         )
 
-    # Stop processing if required columns are missing
+    # Stop if required columns are missing
     if google_missing or meta_missing:
         st.stop()
 
@@ -106,10 +105,132 @@ if google_file is not None and meta_file is not None:
         meta_data
     )
 
-    st.success("Your marketing data has been cleaned successfully!")
+    st.success(
+        "Your marketing data has been cleaned successfully!"
+    )
 
     # ========================================================
-    # 4. DISPLAY PERFORMANCE REPORT
+    # 4. PERFORMANCE OVERVIEW
+    # ========================================================
+
+    st.subheader("Performance Overview")
+
+    total_spend = combined_data["spend"].sum()
+    total_impressions = combined_data["impressions"].sum()
+    total_clicks = combined_data["clicks"].sum()
+    total_revenue = combined_data["revenue"].sum()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            "Total Spend",
+            f"${total_spend:,.2f}"
+        )
+
+    with col2:
+        st.metric(
+            "Total Impressions",
+            f"{total_impressions:,.0f}"
+        )
+
+    with col3:
+        st.metric(
+            "Total Clicks",
+            f"{total_clicks:,.0f}"
+        )
+
+    with col4:
+        st.metric(
+            "Reported Revenue",
+            f"${total_revenue:,.2f}"
+        )
+
+    st.caption(
+        "Figures reflect platform-reported data. Click and "
+        "conversion definitions may differ between platforms, "
+        "and attributed revenue may overlap."
+    )
+
+    # ========================================================
+    # 5. PERFORMANCE BY PLATFORM
+    # ========================================================
+
+    st.subheader("Performance by Platform")
+
+    # Aggregate campaign data by platform
+    platform_summary = combined_data.groupby("platform").agg(
+        spend=("spend", "sum"),
+        impressions=("impressions", "sum"),
+        clicks=("clicks", "sum"),
+        conversions=("conversions", "sum"),
+        revenue=("revenue", "sum"),
+        missing_conversion_rows=("data_quality_flag", "sum"),
+    ).reset_index()
+
+    # Prepare safe denominators
+    valid_impressions = platform_summary["impressions"].replace(
+        0, float("nan")
+    )
+
+    valid_clicks = platform_summary["clicks"].replace(
+        0, float("nan")
+    )
+
+    valid_conversions = platform_summary["conversions"].replace(
+        0, float("nan")
+    )
+
+    valid_spend = platform_summary["spend"].replace(
+        0, float("nan")
+    )
+
+    # Calculate platform-level CTR
+    platform_summary["ctr"] = (
+        platform_summary["clicks"] / valid_impressions * 100
+    )
+
+    # Calculate platform-level CPC
+    platform_summary["cpc"] = (
+        platform_summary["spend"] / valid_clicks
+    )
+
+    # Calculate platform-level CPM
+    platform_summary["cpm"] = (
+        platform_summary["spend"] / valid_impressions * 1000
+    )
+
+    # Calculate platform-level CPA
+    platform_summary["cpa"] = (
+        platform_summary["spend"] / valid_conversions
+    )
+
+    # Calculate platform-level CVR
+    platform_summary["cvr"] = (
+        platform_summary["conversions"] / valid_clicks * 100
+    )
+
+    # Calculate platform-level ROAS
+    platform_summary["roas"] = (
+        platform_summary["revenue"] / valid_spend
+    )
+
+    # Display platform breakdown
+    st.dataframe(
+        platform_summary.round(2),
+        width="stretch",
+        hide_index=True
+    )
+
+    if platform_summary["missing_conversion_rows"].sum() > 0:
+        st.info(
+            "Some platform-level conversion metrics are based "
+            "on incomplete conversion data. Review the missing "
+            "conversion rows before interpreting CPA or CVR."
+        )
+
+    # ========================================================
+    # 6. COMBINED CAMPAIGN PERFORMANCE REPORT
     # ========================================================
 
     st.subheader("Combined Marketing Performance Report")
@@ -120,7 +241,7 @@ if google_file is not None and meta_file is not None:
     )
 
     # ========================================================
-    # 5. DISPLAY DATA QUALITY WARNINGS
+    # 7. DATA QUALITY WARNINGS
     # ========================================================
 
     flagged_data = combined_data[
@@ -137,12 +258,21 @@ if google_file is not None and meta_file is not None:
             flagged_data[
                 ["platform", "campaign", "conversions"]
             ],
-            width="stretch"
+            width="stretch",
+            hide_index=True
+        )
+
+    else:
+
+        st.success(
+            "No missing conversion values detected."
         )
 
     # ========================================================
-    # 6. DOWNLOAD CLEANED REPORT
+    # 8. DOWNLOAD CLEANED REPORT
     # ========================================================
+
+    st.subheader("Export Your Report")
 
     csv_data = combined_data.to_csv(index=False)
 
