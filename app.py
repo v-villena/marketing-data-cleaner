@@ -3,7 +3,8 @@ import pandas as pd
 
 from data_cleaner import (
     clean_marketing_data,
-    validate_platform_columns,
+    COLUMN_ALIASES,
+    get_column_mapping,
 )
 
 
@@ -161,6 +162,104 @@ def format_summary_table(data):
 
 
 # ============================================================
+# 4. MATCH UPLOADED COLUMNS
+# ============================================================
+
+def map_uploaded_columns(data, platform):
+    """Auto-match known headers and let users map unfamiliar headers."""
+
+    data = data.dropna(how="all").copy()
+
+    if data.empty:
+        st.error(f"{platform} CSV contains no data rows.")
+        st.stop()
+
+    automatic_mapping, missing = get_column_mapping(data, platform)
+    matched_sources = {
+        standard_name: source_name
+        for source_name, standard_name in automatic_mapping.items()
+    }
+
+    if missing:
+        st.error(
+            "We couldn't match every column automatically. "
+            "Please complete the fields highlighted in red."
+        )
+    else:
+        st.caption(f"{platform}: all required columns recognized automatically.")
+
+    choices = ["Select a column..."] + list(data.columns)
+    selected = {}
+
+    with st.expander(
+        f"Review {platform} column mapping",
+        expanded=bool(missing),
+    ):
+        st.caption(
+            "Each field must use a different source column. "
+            "Revenue means attributed conversion value, not ROAS."
+        )
+
+        for standard_name in COLUMN_ALIASES[platform]:
+            default = matched_sources.get(standard_name)
+            default_index = choices.index(default) if default in choices else 0
+            widget_key = f"map_{platform}_{standard_name}"
+            display_name = standard_name.replace("_", " ").title()
+
+            # Highlight an unmapped field next to the dropdown itself.
+            # Check session state so the red label disappears after selection.
+            current_value = st.session_state.get(
+                widget_key,
+                choices[default_index],
+            )
+            needs_mapping = current_value not in data.columns
+
+            if needs_mapping:
+                st.markdown(
+                    f'<p style="color:#C0392B; font-weight:700; '
+                    f'margin-bottom:0.2rem;">{display_name} *</p>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<p style="font-weight:500; '
+                    f'margin-bottom:0.2rem;">{display_name}</p>',
+                    unsafe_allow_html=True,
+                )
+
+            source = st.selectbox(
+                display_name,
+                choices,
+                index=default_index,
+                key=widget_key,
+                label_visibility="collapsed",
+            )
+            selected[standard_name] = source
+
+    missing_fields = [
+        field for field, source in selected.items()
+        if source == "Select a column..."
+    ]
+    if missing_fields:
+        st.stop()
+
+    sources = list(selected.values())
+    if len(sources) != len(set(sources)):
+        st.error(
+            f"{platform}: each required field must use a different CSV column."
+        )
+        st.stop()
+
+    # Build a clean input with headers the existing cleaner already supports.
+    # Keep source values unchanged so numeric cleaning still happens in
+    # data_cleaner.py, and ignore unrelated export columns.
+    return pd.DataFrame({
+        COLUMN_ALIASES[platform][field][0]: data[source]
+        for field, source in selected.items()
+    })
+
+
+# ============================================================
 # 4. PAGE HEADER
 # ============================================================
 
@@ -213,58 +312,17 @@ if google_file is not None and meta_file is not None:
         st.stop()
 
     # ========================================================
-    # 7. FLEXIBLE COLUMN VALIDATION
+    # 7. AUTOMATIC + MANUAL COLUMN MAPPING
     # ========================================================
 
-    google_missing = validate_platform_columns(
-        google_data,
-        "Google Ads",
+    st.subheader("Column Mapping")
+    st.write(
+        "Known headers are selected automatically. If a header is "
+        "unfamiliar, choose its matching field from the dropdown."
     )
 
-    meta_missing = validate_platform_columns(
-        meta_data,
-        "Meta Ads",
-    )
-
-    if google_missing:
-
-        st.error(
-            "Google Ads CSV is missing required fields."
-        )
-
-        for item in google_missing:
-            st.write(
-                f"**{item['field']}**: Accepted column names include "
-                f"{', '.join(item['accepted_names'])}"
-            )
-
-    if meta_missing:
-
-        st.error(
-            "Meta Ads CSV is missing required fields."
-        )
-
-        for item in meta_missing:
-            st.write(
-                f"**{item['field']}**: Accepted column names include "
-                f"{', '.join(item['accepted_names'])}"
-            )
-
-    if google_missing or meta_missing:
-        st.stop()
-
-    # Remove completely empty rows.
-
-    google_data = google_data.dropna(how="all")
-    meta_data = meta_data.dropna(how="all")
-
-    if google_data.empty or meta_data.empty:
-
-        st.error(
-            "One or both uploaded files contain no data rows."
-        )
-
-        st.stop()
+    google_data = map_uploaded_columns(google_data, "Google Ads")
+    meta_data = map_uploaded_columns(meta_data, "Meta Ads")
 
     # Clean and combine the two platforms.
 
