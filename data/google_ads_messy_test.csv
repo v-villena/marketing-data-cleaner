@@ -1,0 +1,6 @@
+Campaign,Cost (USD),Impressions,Clicks,Conversions,Conversion value,Campaign status,Campaign type
+Search - Brand,"$1,250.50","45,200",385,142,"$985.00",Enabled,Search
+Search - Nonbrand,"$420.75","185,000",620,187,"$1,820.00",Enabled,Search
+Performance Max,"$3,100.00","420,000","4,850",98,"$12,400.00",Enabled,Performance Max
+Search - Competitors,"$875.25","38,200",920,12,"$1,450.00",Paused,Search
+Display - Remarketing,"$650.00","310,000","2,150",0,"$0.00",Enabled,Display
