@@ -175,3 +175,14 @@ print(
         ["platform", "campaign", "conversions"]
     ].to_string(index=False)
 )
+
+# ============================================================
+# 8. EXPORT CLEANED PERFORMANCE DATA
+# ============================================================
+
+combined_data[report_columns].round(2).to_csv(
+    "marketing_performance_report.csv",
+    index=False
+)
+
+print("\nReport exported: marketing_performance_report.csv")
