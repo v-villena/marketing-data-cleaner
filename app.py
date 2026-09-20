@@ -51,6 +51,55 @@ if google_file is not None and meta_file is not None:
     google_data = pd.read_csv(google_file)
     meta_data = pd.read_csv(meta_file)
 
+    # Validate Google Ads columns
+    google_required = [
+        "Campaign",
+        "Cost",
+        "Impr.",
+        "Clicks",
+        "Conversions",
+        "Conv. value",
+    ]
+
+    # Validate Meta Ads columns
+    meta_required = [
+        "Campaign name",
+        "Amount spent (USD)",
+        "Impressions",
+        "Link clicks",
+        "Results",
+        "Purchases conversion value",
+    ]
+
+    # Identify missing Google Ads columns
+    google_missing = [
+        column for column in google_required
+        if column not in google_data.columns
+    ]
+
+    # Identify missing Meta Ads columns
+    meta_missing = [
+        column for column in meta_required
+        if column not in meta_data.columns
+    ]
+
+    # Display validation errors
+    if google_missing:
+        st.error(
+            "Google Ads CSV is missing required columns: "
+            + ", ".join(google_missing)
+        )
+
+    if meta_missing:
+        st.error(
+            "Meta Ads CSV is missing required columns: "
+            + ", ".join(meta_missing)
+        )
+
+    # Stop processing if required columns are missing
+    if google_missing or meta_missing:
+        st.stop()
+
     # Clean and combine both platforms
     combined_data = clean_marketing_data(
         google_data,
