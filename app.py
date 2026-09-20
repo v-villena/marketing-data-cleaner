@@ -593,6 +593,7 @@ if google_file is not None and meta_file is not None:
             "cpa": st.column_config.NumberColumn(
                 "CPA",
                 format="$%.2f",
+                help="N/A when conversions are zero or missing.",
             ),
             "cvr": st.column_config.NumberColumn(
                 "CVR",
