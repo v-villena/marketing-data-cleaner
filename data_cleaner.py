@@ -1,85 +1,282 @@
 import pandas as pd
 
 
-def clean_marketing_data(google_data, meta_data):
-    """
-    Clean and combine Google Ads and Meta Ads campaign exports.
-    Returns a standardized performance report.
-    """
+# ============================================================
+# 1. SUPPORTED COLUMN NAMES
+# ============================================================
 
-    # Work with copies to preserve the original uploaded data
-    google_data = google_data.copy()
-    meta_data = meta_data.copy()
+COLUMN_ALIASES = {
+    "Google Ads": {
+        "campaign": [
+            "Campaign",
+            "Campaign name",
+        ],
+        "spend": [
+            "Cost",
+            "Cost (USD)",
+            "Spend",
+        ],
+        "impressions": [
+            "Impr.",
+            "Impressions",
+        ],
+        "clicks": [
+            "Clicks",
+        ],
+        "conversions": [
+            "Conversions",
+            "Conv.",
+        ],
+        "revenue": [
+            "Conv. value",
+            "Conversion value",
+            "Conversion value (USD)",
+        ],
+    },
+    "Meta Ads": {
+        "campaign": [
+            "Campaign name",
+            "Campaign",
+        ],
+        "spend": [
+            "Amount spent (USD)",
+            "Amount spent",
+            "Amount spent (US Dollars)",
+        ],
+        "impressions": [
+            "Impressions",
+        ],
+        "clicks": [
+            "Link clicks",
+            "Link Clicks",
+        ],
+        "conversions": [
+            "Results",
+        ],
+        "revenue": [
+            "Purchases conversion value",
+            "Purchases conversion value (USD)",
+        ],
+    },
+}
 
-    # ========================================================
-    # 1. STANDARDIZE GOOGLE ADS
-    # ========================================================
 
-    google_data = google_data.rename(
-        columns={
-            "Campaign": "campaign",
-            "Cost": "spend",
-            "Impr.": "impressions",
-            "Clicks": "clicks",
-            "Conversions": "conversions",
-            "Conv. value": "revenue",
-        }
+# ============================================================
+# 2. FLEXIBLE COLUMN MATCHING
+# ============================================================
+
+def normalize_column_name(name):
+    """Ignore capitalization and extra spaces in headers."""
+
+    return " ".join(
+        str(name).strip().lower().split()
     )
 
-    google_data["platform"] = "Google Ads"
-    google_data["click_type"] = "Google Ads clicks"
-    google_data["conversion_type"] = "Google Ads conversions"
 
-    google_data["spend"] = (
-        google_data["spend"]
-        .astype(str)
+def get_column_mapping(data, platform):
+    """Match uploaded columns to standardized report fields."""
+
+    aliases = COLUMN_ALIASES[platform]
+
+    uploaded_columns = {
+        normalize_column_name(column): column
+        for column in data.columns
+    }
+
+    mapping = {}
+    missing = []
+
+    for standard_name, possible_names in aliases.items():
+
+        matched_column = None
+
+        for possible_name in possible_names:
+
+            normalized_name = normalize_column_name(
+                possible_name
+            )
+
+            if normalized_name in uploaded_columns:
+
+                matched_column = uploaded_columns[
+                    normalized_name
+                ]
+
+                break
+
+        if matched_column is None:
+
+            missing.append(
+                {
+                    "field": standard_name,
+                    "accepted_names": possible_names,
+                }
+            )
+
+        else:
+
+            mapping[matched_column] = standard_name
+
+    return mapping, missing
+
+
+def validate_platform_columns(data, platform):
+    """Return missing required fields for an uploaded CSV."""
+
+    _, missing = get_column_mapping(
+        data,
+        platform
+    )
+
+    return missing
+
+
+# ============================================================
+# 3. NUMERIC CLEANING
+# ============================================================
+
+def clean_numeric_column(series):
+    """Convert exported numeric values into usable numbers."""
+
+    cleaned = (
+        series
+        .astype("string")
+        .str.strip()
         .str.replace("$", "", regex=False)
         .str.replace(",", "", regex=False)
-        .astype(float)
+        .str.replace("%", "", regex=False)
+        .str.strip()
     )
 
-    google_data["data_quality_flag"] = google_data["conversions"].isna()
-
-    # ========================================================
-    # 2. STANDARDIZE META ADS
-    # ========================================================
-
-    meta_data = meta_data.rename(
-        columns={
-            "Campaign name": "campaign",
-            "Amount spent (USD)": "spend",
-            "Impressions": "impressions",
-            "Link clicks": "clicks",
-            "Results": "conversions",
-            "Purchases conversion value": "revenue",
+    cleaned = cleaned.replace(
+        {
+            "": pd.NA,
+            "-": pd.NA,
+            "—": pd.NA,
+            "N/A": pd.NA,
+            "n/a": pd.NA,
+            "None": pd.NA,
+            "nan": pd.NA,
         }
     )
 
-    meta_data["platform"] = "Meta Ads"
-    meta_data["click_type"] = "Link clicks"
-    meta_data["conversion_type"] = "Meta Ads results"
+    return pd.to_numeric(
+        cleaned,
+        errors="coerce"
+    )
 
-    for column in ["impressions", "clicks"]:
-        meta_data[column] = (
-            meta_data[column]
-            .astype(str)
-            .str.replace(",", "", regex=False)
-            .astype(int)
+
+# ============================================================
+# 4. STANDARDIZE PLATFORM DATA
+# ============================================================
+
+def standardize_platform_data(data, platform):
+
+    data = data.copy()
+
+    column_mapping, missing = get_column_mapping(
+        data,
+        platform
+    )
+
+    if missing:
+
+        missing_fields = ", ".join(
+            item["field"]
+            for item in missing
         )
 
-    meta_data["spend"] = (
-        meta_data["spend"]
-        .astype(str)
-        .str.replace("$", "", regex=False)
-        .str.replace(",", "", regex=False)
-        .astype(float)
+        raise ValueError(
+            f"{platform} is missing required fields: "
+            f"{missing_fields}"
+        )
+
+    data = data.rename(
+        columns=column_mapping
     )
 
-    meta_data["data_quality_flag"] = meta_data["conversions"].isna()
+    standard_columns = [
+        "campaign",
+        "spend",
+        "impressions",
+        "clicks",
+        "conversions",
+        "revenue",
+    ]
 
-    # ========================================================
-    # 3. COMBINE DATA
-    # ========================================================
+    data = data[standard_columns].copy()
+
+    data = data.dropna(
+        how="all"
+    )
+
+    data["campaign"] = (
+        data["campaign"]
+        .astype("string")
+        .str.strip()
+    )
+
+    data = data[
+        data["campaign"].notna()
+        & data["campaign"].ne("")
+    ].copy()
+
+    numeric_columns = [
+        "spend",
+        "impressions",
+        "clicks",
+        "conversions",
+        "revenue",
+    ]
+
+    for column in numeric_columns:
+
+        data[column] = clean_numeric_column(
+            data[column]
+        )
+
+    # A missing conversion value is not the same as zero.
+
+    data["data_quality_flag"] = (
+        data["conversions"].isna()
+    )
+
+    data["platform"] = platform
+
+    if platform == "Google Ads":
+
+        data["click_type"] = "Google Ads clicks"
+
+        data["conversion_type"] = (
+            "Google Ads conversions"
+        )
+
+    else:
+
+        data["click_type"] = "Link clicks"
+
+        data["conversion_type"] = (
+            "Meta Ads results"
+        )
+
+    return data
+
+
+# ============================================================
+# 5. CLEAN AND COMBINE DATA
+# ============================================================
+
+def clean_marketing_data(google_data, meta_data):
+
+    google_data = standardize_platform_data(
+        google_data,
+        "Google Ads"
+    )
+
+    meta_data = standardize_platform_data(
+        meta_data,
+        "Meta Ads"
+    )
 
     combined_data = pd.concat(
         [google_data, meta_data],
@@ -87,48 +284,64 @@ def clean_marketing_data(google_data, meta_data):
     )
 
     # ========================================================
-    # 4. CALCULATE PERFORMANCE METRICS
+    # 6. CALCULATE PERFORMANCE METRICS
     # ========================================================
 
-    valid_impressions = combined_data["impressions"].replace(
-        0, float("nan")
+    valid_impressions = (
+        combined_data["impressions"]
+        .replace(0, float("nan"))
     )
-    valid_clicks = combined_data["clicks"].replace(
-        0, float("nan")
+
+    valid_clicks = (
+        combined_data["clicks"]
+        .replace(0, float("nan"))
     )
-    valid_conversions = combined_data["conversions"].replace(
-        0, float("nan")
+
+    valid_conversions = (
+        combined_data["conversions"]
+        .replace(0, float("nan"))
     )
-    valid_spend = combined_data["spend"].replace(
-        0, float("nan")
+
+    valid_spend = (
+        combined_data["spend"]
+        .replace(0, float("nan"))
     )
 
     combined_data["ctr"] = (
-        combined_data["clicks"] / valid_impressions * 100
+        combined_data["clicks"]
+        / valid_impressions
+        * 100
     )
 
     combined_data["cpc"] = (
-        combined_data["spend"] / valid_clicks
+        combined_data["spend"]
+        / valid_clicks
     )
 
     combined_data["cpm"] = (
-        combined_data["spend"] / valid_impressions * 1000
+        combined_data["spend"]
+        / valid_impressions
+        * 1000
     )
 
     combined_data["cpa"] = (
-        combined_data["spend"] / valid_conversions
+        combined_data["spend"]
+        / valid_conversions
     )
 
     combined_data["cvr"] = (
-        combined_data["conversions"] / valid_clicks * 100
+        combined_data["conversions"]
+        / valid_clicks
+        * 100
     )
 
     combined_data["roas"] = (
-        combined_data["revenue"] / valid_spend
+        combined_data["revenue"]
+        / valid_spend
     )
 
     # ========================================================
-    # 5. RETURN CLEANED REPORT
+    # 7. RETURN STANDARDIZED REPORT
     # ========================================================
 
     report_columns = [
@@ -150,4 +363,7 @@ def clean_marketing_data(google_data, meta_data):
         "data_quality_flag",
     ]
 
-    return combined_data[report_columns].round(2)
+    return (
+        combined_data[report_columns]
+        .round(2)
+    )

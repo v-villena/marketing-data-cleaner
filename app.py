@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
 
-from data_cleaner import clean_marketing_data
+from data_cleaner import (
+    clean_marketing_data,
+    validate_platform_columns,
+)
 
 
 # ============================================================
@@ -11,7 +14,7 @@ from data_cleaner import clean_marketing_data
 st.set_page_config(
     page_title="Marketing Data Cleaner",
     page_icon="📊",
-    layout="wide"
+    layout="wide",
 )
 
 
@@ -66,7 +69,7 @@ st.markdown(
         }
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 
@@ -75,7 +78,7 @@ st.markdown(
 # ============================================================
 
 def safe_divide(numerator, denominator):
-    """Return a missing value when division is not possible."""
+    """Return NaN when division is not possible."""
 
     if pd.isna(denominator) or denominator == 0:
         return float("nan")
@@ -112,7 +115,7 @@ def format_roas(value):
 
 
 def format_summary_table(data):
-    """Create a presentation-friendly copy of a summary table."""
+    """Format a summary table for dashboard display."""
 
     formatted = data.copy()
 
@@ -178,13 +181,13 @@ st.subheader("Upload Your Advertising Data")
 google_file = st.file_uploader(
     "Google Ads CSV",
     type="csv",
-    key="google"
+    key="google",
 )
 
 meta_file = st.file_uploader(
     "Meta Ads CSV",
     type="csv",
-    key="meta"
+    key="meta",
 )
 
 
@@ -194,73 +197,121 @@ meta_file = st.file_uploader(
 
 if google_file is not None and meta_file is not None:
 
-    google_data = pd.read_csv(google_file)
-    meta_data = pd.read_csv(meta_file)
+    # Read both uploaded files.
 
-    # Required Google Ads columns
-    google_required = [
-        "Campaign",
-        "Cost",
-        "Impr.",
-        "Clicks",
-        "Conversions",
-        "Conv. value",
-    ]
+    try:
+        google_data = pd.read_csv(google_file)
+        meta_data = pd.read_csv(meta_file)
 
-    # Required Meta Ads columns
-    meta_required = [
-        "Campaign name",
-        "Amount spent (USD)",
-        "Impressions",
-        "Link clicks",
-        "Results",
-        "Purchases conversion value",
-    ]
+    except (pd.errors.EmptyDataError, pd.errors.ParserError) as error:
+        st.error(
+            "One of the uploaded CSV files could not be read. "
+            "Please check the file format and try again."
+        )
 
-    # Identify missing columns
-    google_missing = [
-        column for column in google_required
-        if column not in google_data.columns
-    ]
+        st.caption(f"Technical details: {error}")
+        st.stop()
 
-    meta_missing = [
-        column for column in meta_required
-        if column not in meta_data.columns
-    ]
+    # ========================================================
+    # 7. FLEXIBLE COLUMN VALIDATION
+    # ========================================================
+
+    google_missing = validate_platform_columns(
+        google_data,
+        "Google Ads",
+    )
+
+    meta_missing = validate_platform_columns(
+        meta_data,
+        "Meta Ads",
+    )
 
     if google_missing:
+
         st.error(
-            "Google Ads CSV is missing required columns: "
-            + ", ".join(google_missing)
+            "Google Ads CSV is missing required fields."
         )
 
+        for item in google_missing:
+            st.write(
+                f"**{item['field']}**: Accepted column names include "
+                f"{', '.join(item['accepted_names'])}"
+            )
+
     if meta_missing:
+
         st.error(
-            "Meta Ads CSV is missing required columns: "
-            + ", ".join(meta_missing)
+            "Meta Ads CSV is missing required fields."
         )
+
+        for item in meta_missing:
+            st.write(
+                f"**{item['field']}**: Accepted column names include "
+                f"{', '.join(item['accepted_names'])}"
+            )
 
     if google_missing or meta_missing:
         st.stop()
 
-    # Clean and combine platform data
-    combined_data = clean_marketing_data(
-        google_data,
-        meta_data
-    )
+    # Remove completely empty rows.
+
+    google_data = google_data.dropna(how="all")
+    meta_data = meta_data.dropna(how="all")
+
+    if google_data.empty or meta_data.empty:
+
+        st.error(
+            "One or both uploaded files contain no data rows."
+        )
+
+        st.stop()
+
+    # Clean and combine the two platforms.
+
+    try:
+
+        combined_data = clean_marketing_data(
+            google_data,
+            meta_data,
+        )
+
+    except ValueError as error:
+
+        st.error(
+            f"Unable to clean the uploaded data: {error}"
+        )
+
+        st.stop()
+
+    if combined_data.empty:
+
+        st.error(
+            "No campaign data was found after cleaning "
+            "the uploaded files."
+        )
+
+        st.stop()
 
     st.success(
         "Your marketing data has been cleaned successfully!"
     )
 
     # ========================================================
-    # 7. CALCULATE OVERALL PERFORMANCE
+    # 8. CALCULATE OVERALL PERFORMANCE
     # ========================================================
 
     total_spend = combined_data["spend"].sum()
-    total_impressions = combined_data["impressions"].sum()
+
+    total_impressions = combined_data[
+        "impressions"
+    ].sum()
+
     total_clicks = combined_data["clicks"].sum()
-    total_conversions = combined_data["conversions"].sum()
+
+    total_conversions = combined_data[
+        "conversions"
+    ].sum()
+
     total_revenue = combined_data["revenue"].sum()
 
     missing_conversion_rows = int(
@@ -268,34 +319,46 @@ if google_file is not None and meta_file is not None:
     )
 
     blended_ctr = (
-        safe_divide(total_clicks, total_impressions) * 100
+        safe_divide(
+            total_clicks,
+            total_impressions,
+        )
+        * 100
     )
 
     blended_cpc = safe_divide(
         total_spend,
-        total_clicks
+        total_clicks,
     )
 
     blended_cpm = (
-        safe_divide(total_spend, total_impressions) * 1000
+        safe_divide(
+            total_spend,
+            total_impressions,
+        )
+        * 1000
     )
 
     blended_cpa = safe_divide(
         total_spend,
-        total_conversions
+        total_conversions,
     )
 
     blended_cvr = (
-        safe_divide(total_conversions, total_clicks) * 100
+        safe_divide(
+            total_conversions,
+            total_clicks,
+        )
+        * 100
     )
 
     blended_roas = safe_divide(
         total_revenue,
-        total_spend
+        total_spend,
     )
 
     # ========================================================
-    # 8. HEADLINE KPI CARDS
+    # 9. HEADLINE KPI CARDS
     # ========================================================
 
     st.subheader("Performance Overview")
@@ -303,27 +366,31 @@ if google_file is not None and meta_file is not None:
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
+
         st.metric(
             "Total Spend",
-            format_currency(total_spend)
+            format_currency(total_spend),
         )
 
     with col2:
+
         st.metric(
             "Reported Revenue",
-            format_currency(total_revenue)
+            format_currency(total_revenue),
         )
 
     with col3:
+
         st.metric(
             "Blended CPA",
-            format_currency(blended_cpa)
+            format_currency(blended_cpa),
         )
 
     with col4:
+
         st.metric(
             "Blended ROAS",
-            format_roas(blended_roas)
+            format_roas(blended_roas),
         )
 
     st.caption(
@@ -333,8 +400,16 @@ if google_file is not None and meta_file is not None:
         "Attributed revenue may overlap across platforms."
     )
 
+    if missing_conversion_rows > 0:
+
+        st.info(
+            f"{missing_conversion_rows} campaign(s) have "
+            "missing conversion values. Reported conversions, "
+            "blended CPA, and blended CVR may be incomplete."
+        )
+
     # ========================================================
-    # 9. OVERALL PERFORMANCE TABLE
+    # 10. OVERALL PERFORMANCE TABLE
     # ========================================================
 
     st.subheader("Overall Performance")
@@ -360,11 +435,11 @@ if google_file is not None and meta_file is not None:
     st.dataframe(
         format_summary_table(overall_summary),
         width="stretch",
-        hide_index=True
+        hide_index=True,
     )
 
     # ========================================================
-    # 10. PERFORMANCE BY PLATFORM
+    # 11. PERFORMANCE BY PLATFORM
     # ========================================================
 
     st.subheader("Performance by Platform")
@@ -379,15 +454,17 @@ if google_file is not None and meta_file is not None:
         revenue=("revenue", "sum"),
         missing_conversion_rows=(
             "data_quality_flag",
-            "sum"
+            "sum",
         ),
     ).reset_index()
 
-    # Calculate platform-level metrics from totals
+    # Calculate platform metrics using platform totals.
+
     platform_summary["ctr"] = (
         platform_summary["clicks"]
         / platform_summary["impressions"].replace(
-            0, float("nan")
+            0,
+            float("nan"),
         )
         * 100
     )
@@ -395,14 +472,16 @@ if google_file is not None and meta_file is not None:
     platform_summary["cpc"] = (
         platform_summary["spend"]
         / platform_summary["clicks"].replace(
-            0, float("nan")
+            0,
+            float("nan"),
         )
     )
 
     platform_summary["cpm"] = (
         platform_summary["spend"]
         / platform_summary["impressions"].replace(
-            0, float("nan")
+            0,
+            float("nan"),
         )
         * 1000
     )
@@ -410,14 +489,16 @@ if google_file is not None and meta_file is not None:
     platform_summary["cpa"] = (
         platform_summary["spend"]
         / platform_summary["conversions"].replace(
-            0, float("nan")
+            0,
+            float("nan"),
         )
     )
 
     platform_summary["cvr"] = (
         platform_summary["conversions"]
         / platform_summary["clicks"].replace(
-            0, float("nan")
+            0,
+            float("nan"),
         )
         * 100
     )
@@ -425,11 +506,13 @@ if google_file is not None and meta_file is not None:
     platform_summary["roas"] = (
         platform_summary["revenue"]
         / platform_summary["spend"].replace(
-            0, float("nan")
+            0,
+            float("nan"),
         )
     )
 
-    # Rename columns for the dashboard
+    # Rename columns for display.
+
     platform_summary = platform_summary.rename(
         columns={
             "platform": "Platform",
@@ -450,7 +533,8 @@ if google_file is not None and meta_file is not None:
         }
     )
 
-    # Arrange columns in reporting order
+    # Put columns in a logical reporting order.
+
     platform_summary = platform_summary[
         [
             "Platform",
@@ -472,18 +556,11 @@ if google_file is not None and meta_file is not None:
     st.dataframe(
         format_summary_table(platform_summary),
         width="stretch",
-        hide_index=True
+        hide_index=True,
     )
 
-    if missing_conversion_rows > 0:
-        st.info(
-            "Some conversion metrics are based on incomplete "
-            "platform data. Review flagged campaigns before "
-            "interpreting CPA, CVR, or reported conversions."
-        )
-
     # ========================================================
-    # 11. CAMPAIGN PERFORMANCE REPORT
+    # 12. CAMPAIGN PERFORMANCE REPORT
     # ========================================================
 
     st.subheader("Campaign Performance")
@@ -495,46 +572,46 @@ if google_file is not None and meta_file is not None:
         column_config={
             "spend": st.column_config.NumberColumn(
                 "Spend",
-                format="$%.2f"
+                format="$%.2f",
             ),
             "revenue": st.column_config.NumberColumn(
                 "Revenue",
-                format="$%.2f"
+                format="$%.2f",
             ),
             "ctr": st.column_config.NumberColumn(
                 "CTR",
-                format="%.2f%%"
+                format="%.2f%%",
             ),
             "cpc": st.column_config.NumberColumn(
                 "CPC",
-                format="$%.2f"
+                format="$%.2f",
             ),
             "cpm": st.column_config.NumberColumn(
                 "CPM",
-                format="$%.2f"
+                format="$%.2f",
             ),
             "cpa": st.column_config.NumberColumn(
                 "CPA",
-                format="$%.2f"
+                format="$%.2f",
             ),
             "cvr": st.column_config.NumberColumn(
                 "CVR",
-                format="%.2f%%"
+                format="%.2f%%",
             ),
             "roas": st.column_config.NumberColumn(
                 "ROAS",
-                format="%.2fx"
+                format="%.2fx",
             ),
             "data_quality_flag": (
                 st.column_config.CheckboxColumn(
                     "Needs Review"
                 )
             ),
-        }
+        },
     )
 
     # ========================================================
-    # 12. DATA QUALITY
+    # 13. DATA QUALITY
     # ========================================================
 
     st.subheader("Data Quality")
@@ -559,7 +636,7 @@ if google_file is not None and meta_file is not None:
                 ]
             ],
             width="stretch",
-            hide_index=True
+            hide_index=True,
         )
 
     else:
@@ -569,18 +646,20 @@ if google_file is not None and meta_file is not None:
         )
 
     # ========================================================
-    # 13. EXPORT
+    # 14. EXPORT
     # ========================================================
 
     st.subheader("Export Your Report")
 
-    csv_data = combined_data.to_csv(index=False)
+    csv_data = combined_data.to_csv(
+        index=False
+    )
 
     st.download_button(
         label="Download Cleaned Performance Report",
         data=csv_data,
         file_name="marketing_performance_report.csv",
-        mime="text/csv"
+        mime="text/csv",
     )
 
 else:
