@@ -215,13 +215,59 @@ if google_file is not None and meta_file is not None:
         platform_summary["revenue"] / valid_spend
     )
 
-    # Display platform breakdown
+    # ========================================================
+    # 6. FORMAT PLATFORM PERFORMANCE
+    # ========================================================
+
+    formatted_platform_summary = platform_summary.copy()
+
+    currency_columns = [
+        "spend",
+        "revenue",
+        "cpc",
+        "cpm",
+        "cpa",
+    ]
+
+    for column in currency_columns:
+        formatted_platform_summary[column] = (
+            formatted_platform_summary[column].map(
+                lambda value: f"${value:,.2f}"
+                if pd.notna(value) else "N/A"
+            )
+        )
+
+    for column in ["ctr", "cvr"]:
+        formatted_platform_summary[column] = (
+            formatted_platform_summary[column].map(
+                lambda value: f"{value:.2f}%"
+                if pd.notna(value) else "N/A"
+            )
+        )
+
+    formatted_platform_summary["roas"] = (
+        formatted_platform_summary["roas"].map(
+            lambda value: f"{value:.2f}x"
+            if pd.notna(value) else "N/A"
+        )
+    )
+
+    for column in ["impressions", "clicks", "conversions"]:
+        formatted_platform_summary[column] = (
+            formatted_platform_summary[column].map(
+                lambda value: f"{value:,.0f}"
+                if pd.notna(value) else "N/A"
+            )
+        )
+
+    # Display formatted platform breakdown
     st.dataframe(
-        platform_summary.round(2),
+        formatted_platform_summary,
         width="stretch",
         hide_index=True
     )
 
+    # Display warning for incomplete conversion data
     if platform_summary["missing_conversion_rows"].sum() > 0:
         st.info(
             "Some platform-level conversion metrics are based "
@@ -230,18 +276,61 @@ if google_file is not None and meta_file is not None:
         )
 
     # ========================================================
-    # 6. COMBINED CAMPAIGN PERFORMANCE REPORT
+    # 7. COMBINED CAMPAIGN PERFORMANCE REPORT
     # ========================================================
 
     st.subheader("Combined Marketing Performance Report")
 
     st.dataframe(
         combined_data,
-        width="stretch"
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "spend": st.column_config.NumberColumn(
+                "Spend",
+                format="$%.2f"
+            ),
+            "revenue": st.column_config.NumberColumn(
+                "Revenue",
+                format="$%.2f"
+            ),
+            "impressions": st.column_config.NumberColumn(
+                "Impressions",
+                format="%d"
+            ),
+            "clicks": st.column_config.NumberColumn(
+                "Clicks",
+                format="%d"
+            ),
+            "ctr": st.column_config.NumberColumn(
+                "CTR",
+                format="%.2f%%"
+            ),
+            "cpc": st.column_config.NumberColumn(
+                "CPC",
+                format="$%.2f"
+            ),
+            "cpm": st.column_config.NumberColumn(
+                "CPM",
+                format="$%.2f"
+            ),
+            "cpa": st.column_config.NumberColumn(
+                "CPA",
+                format="$%.2f"
+            ),
+            "cvr": st.column_config.NumberColumn(
+                "CVR",
+                format="%.2f%%"
+            ),
+            "roas": st.column_config.NumberColumn(
+                "ROAS",
+                format="%.2fx"
+            ),
+        }
     )
 
     # ========================================================
-    # 7. DATA QUALITY WARNINGS
+    # 8. DATA QUALITY WARNINGS
     # ========================================================
 
     flagged_data = combined_data[
@@ -269,7 +358,7 @@ if google_file is not None and meta_file is not None:
         )
 
     # ========================================================
-    # 8. DOWNLOAD CLEANED REPORT
+    # 9. DOWNLOAD CLEANED REPORT
     # ========================================================
 
     st.subheader("Export Your Report")
