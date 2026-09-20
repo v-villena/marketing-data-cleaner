@@ -235,11 +235,17 @@ def standardize_platform_data(data, platform):
             data[column]
         )
 
-    # A missing conversion value is not the same as zero.
-
-    data["data_quality_flag"] = (
-        data["conversions"].isna()
+    # Preserve missing or unparseable values as NaN. A reported zero
+    # is valid and must not be flagged as missing.
+    data["data_quality_issues"] = data[numeric_columns].apply(
+        lambda row: ", ".join(
+            f"Missing {column}"
+            for column in numeric_columns
+            if pd.isna(row[column])
+        ),
+        axis=1,
     )
+    data["data_quality_flag"] = data["data_quality_issues"].ne("")
 
     data["platform"] = platform
 
@@ -361,6 +367,7 @@ def clean_marketing_data(google_data, meta_data):
         "click_type",
         "conversion_type",
         "data_quality_flag",
+        "data_quality_issues",
     ]
 
     return (

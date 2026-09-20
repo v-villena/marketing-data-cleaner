@@ -139,6 +139,7 @@ def format_summary_table(data):
         "Clicks",
         "Conversions",
         "Missing Conversion Rows",
+        "Rows Needing Review",
     ]
 
     for column in number_columns:
@@ -358,23 +359,26 @@ if google_file is not None and meta_file is not None:
     # 8. CALCULATE OVERALL PERFORMANCE
     # ========================================================
 
-    total_spend = combined_data["spend"].sum()
+    total_spend = combined_data["spend"].sum(min_count=1)
 
     total_impressions = combined_data[
         "impressions"
-    ].sum()
+    ].sum(min_count=1)
 
-    total_clicks = combined_data["clicks"].sum()
+    total_clicks = combined_data["clicks"].sum(min_count=1)
 
     total_conversions = combined_data[
         "conversions"
-    ].sum()
+    ].sum(min_count=1)
 
-    total_revenue = combined_data["revenue"].sum()
+    total_revenue = combined_data["revenue"].sum(min_count=1)
 
-    missing_conversion_rows = int(
-        combined_data["data_quality_flag"].sum()
-    )
+    review_rows = int(combined_data["data_quality_flag"].sum())
+    missing_conversion_rows = int(combined_data["conversions"].isna().sum())
+    missing_fields = [
+        field for field in ["spend", "impressions", "clicks", "conversions", "revenue"]
+        if combined_data[field].isna().any()
+    ]
 
     blended_ctr = (
         safe_divide(
@@ -458,12 +462,12 @@ if google_file is not None and meta_file is not None:
         "Attributed revenue may overlap across platforms."
     )
 
-    if missing_conversion_rows > 0:
-
-        st.info(
-            f"{missing_conversion_rows} campaign(s) have "
-            "missing conversion values. Reported conversions, "
-            "blended CPA, and blended CVR may be incomplete."
+    if review_rows > 0:
+        st.warning(
+            f"{review_rows} campaign(s) need data review. "
+            f"Missing or unparseable fields: {', '.join(missing_fields)}. "
+            "Totals and blended KPIs that depend on these fields may be incomplete. "
+            "Review the Data Quality section before using this report."
         )
 
     # ========================================================
@@ -505,15 +509,13 @@ if google_file is not None and meta_file is not None:
     platform_summary = combined_data.groupby(
         "platform"
     ).agg(
-        spend=("spend", "sum"),
-        impressions=("impressions", "sum"),
-        clicks=("clicks", "sum"),
-        conversions=("conversions", "sum"),
-        revenue=("revenue", "sum"),
-        missing_conversion_rows=(
-            "data_quality_flag",
-            "sum",
-        ),
+        spend=("spend", lambda s: s.sum(min_count=1)),
+        impressions=("impressions", lambda s: s.sum(min_count=1)),
+        clicks=("clicks", lambda s: s.sum(min_count=1)),
+        conversions=("conversions", lambda s: s.sum(min_count=1)),
+        revenue=("revenue", lambda s: s.sum(min_count=1)),
+        missing_conversion_rows=("conversions", lambda s: s.isna().sum()),
+        review_rows=("data_quality_flag", "sum"),
     ).reset_index()
 
     # Calculate platform metrics using platform totals.
@@ -579,9 +581,8 @@ if google_file is not None and meta_file is not None:
             "clicks": "Clicks",
             "conversions": "Conversions",
             "revenue": "Revenue",
-            "missing_conversion_rows": (
-                "Missing Conversion Rows"
-            ),
+            "missing_conversion_rows": "Missing Conversion Rows",
+            "review_rows": "Rows Needing Review",
             "ctr": "CTR",
             "cpc": "CPC",
             "cpm": "CPM",
@@ -608,6 +609,7 @@ if google_file is not None and meta_file is not None:
             "Revenue",
             "ROAS",
             "Missing Conversion Rows",
+            "Rows Needing Review",
         ]
     ]
 
@@ -662,9 +664,11 @@ if google_file is not None and meta_file is not None:
                 format="%.2fx",
             ),
             "data_quality_flag": (
-                st.column_config.CheckboxColumn(
-                    "Needs Review"
-                )
+                st.column_config.CheckboxColumn("Needs Review")
+            ),
+            "data_quality_issues": st.column_config.TextColumn(
+                "Data Quality Issues",
+                help="Missing or unparseable source values. Zero is valid.",
             ),
         },
     )
@@ -691,7 +695,7 @@ if google_file is not None and meta_file is not None:
                 [
                     "platform",
                     "campaign",
-                    "conversions",
+                    "data_quality_issues",
                 ]
             ],
             width="stretch",
@@ -701,7 +705,7 @@ if google_file is not None and meta_file is not None:
     else:
 
         st.success(
-            "No missing conversion values detected."
+            "No missing numeric values detected."
         )
 
     # ========================================================
