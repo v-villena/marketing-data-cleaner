@@ -4,7 +4,7 @@ A Python and Streamlit tool that cleans, standardizes, and combines Google Ads a
 
 ## Try the Live App
 
-[Launch the Marketing Data Cleaner + Report Builder](LIVE_APP_URL)
+[Launch the Marketing Data Cleaner + Report Builder](https://marketing-data-cleaner.streamlit.app/)
 
 Upload the fictional Google Ads and Meta Ads sample CSVs from the `data/` folder to explore the dashboard.
 
